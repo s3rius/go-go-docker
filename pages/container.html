@@ -9,29 +9,34 @@
 </head>
 
 <body>
-    <script>
-        function render(running){
-            var cont = d3.select("#image")
+<script>
+    function render(running) {
+        let cont = d3.select("#image")
                 .selectAll(".stats")
                 .data(running)
-                .html((d) => {return d;})
-                
-            cont.enter()
+                .text((d) => {
+                    return d;
+                });
+
+        cont.enter()
                 .append("div")
                 .attr("class", "stats")
-                .html((d) => {return d;})
+                .text((d) => {
+                    return d;
+                });
 
-            cont.exit().remove()
-        }
+        cont.exit().remove()
+    }
 
-        ws = connect("WS", (msg) => {
-            console.log(msg)
-            console.log(JSON.parse(msg.data))
-            conts = JSON.parse(msg.data)
-            render(conts)})
-    </script>
+    ws = connect("WS", (msg) => {
+        console.log(msg);
+        console.log(JSON.parse(msg.data));
+        let cont = JSON.parse(msg.data);
+        render(cont)
+    })
+</script>
 
-    <div id="image">
+<div id="image">
 
-    </div>
+</div>
 </body>

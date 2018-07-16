@@ -37,25 +37,30 @@ func singleContainerRoutine(containerID string, cli *client.Client, channel chan
 	}
 }
 
-func sendRoutine(melody *melody.Melody, channel chan []types.Container) {
+func sendRoutine(mel *melody.Melody, channel chan []types.Container, urlPattern string) {
 	for {
 		containers := <-channel
 		buff, err := json.Marshal(containers)
 		if err != nil {
 			fmt.Println(err)
 		}
-		melody.Broadcast(buff)
+		mel.BroadcastFilter(buff, func(session *melody.Session) bool {
+			return session.Request.URL.Path == urlPattern
+		})
 	}
 }
 
-func sendJSONContainerRoutine(melody *melody.Melody, channel chan types.ContainerJSON) {
+func sendJSONContainerRoutine(mel *melody.Melody, channel chan types.ContainerJSON, urlPattern string) {
 	for {
 		containers := <-channel
 		buff, err := json.Marshal(containers)
 		if err != nil {
 			fmt.Println(err)
 		}
-		melody.Broadcast(buff)
+		mel.BroadcastFilter(buff, func(session *melody.Session) bool {
+			return session.Request.URL.Path == urlPattern
+		})
+		//mel.Broadcast(buff)
 	}
 }
 
@@ -64,21 +69,27 @@ func main() {
 	r := gin.Default()
 	m := melody.New()
 
-	cli, err := client.NewEnvClient()
+	cli, err := client.NewClientWithOpts(client.WithVersion("1.37"))
 	if err != nil {
 		fmt.Println(err)
 	}
 
+
+
 	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/dashboard")
+	})
+
+	r.GET("/dashboard", func(c *gin.Context) {
 		http.ServeFile(c.Writer, c.Request, "pages/dashboard.html")
 	})
 
 	r.Use(static.Serve("/public", static.LocalFile("./public", false)))
 
-	r.GET("/dashboardWS", func(c *gin.Context) {
+	r.GET("/dashboard/dashboardWS", func(c *gin.Context) {
 		containerChan := make(chan []types.Container)
 		go containerRoutine(cli, containerChan)
-		go sendRoutine(m, containerChan)
+		go sendRoutine(m, containerChan, c.Request.URL.Path)
 		m.HandleRequest(c.Writer, c.Request)
 	})
 
@@ -88,10 +99,11 @@ func main() {
 
 	r.GET("/container/:id/WS", func(c *gin.Context) {
 		id := c.Param("id")
-		containerChan := make(chan types.ContainerJSON)
-		go singleContainerRoutine(id, cli, containerChan)
-		go sendJSONContainerRoutine(m, containerChan)
+		container := make(chan types.ContainerJSON)
+		go singleContainerRoutine(id, cli, container)
+		go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
 		m.HandleRequest(c.Writer, c.Request)
+
 	})
 
 	m.HandleDisconnect(func(s *melody.Session) {
