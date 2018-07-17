@@ -1,11 +1,3 @@
-$(document).ready(()=>{
-    let row = $(".clickable-row");
-    row.on("click", function() {
-        // window.location = $(this).data("href");
-        alert("clicked")
-    });
-});
-
 const stat = ({image, name, status}) => `
     <td>
         ${image}
@@ -33,7 +25,7 @@ function render(running) {
         .append("tr")
         .attr("class", "stats clickable-row")
         .attr("data-href", (d)=>{
-            return d.Id
+            return "/container/" + d.Id
         })
         .html((d) => {
             return mapToStats(d);
@@ -41,11 +33,16 @@ function render(running) {
     cont.exit().remove()
 }
 
-ws = connect("dashboardWS", (msg) => {
+ws = connect((msg) => {
     console.log(msg);
     console.log(JSON.parse(msg.data));
     let conts = JSON.parse(msg.data);
     render(conts)
 });
 
+$(document).ready(()=>{
+    $('body').on('click', '.clickable-row', function() {
+        window.location = $(this).data("href");
+    });
+});
 

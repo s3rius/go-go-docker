@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/context"
 	"gopkg.in/olahol/melody.v1"
+
 )
 
 func containerRoutine(cli *client.Client, channel chan []types.Container) {
@@ -44,9 +45,7 @@ func sendRoutine(mel *melody.Melody, channel chan []types.Container, urlPattern 
 		if err != nil {
 			fmt.Println(err)
 		}
-		mel.BroadcastFilter(buff, func(session *melody.Session) bool {
-			return session.Request.URL.Path == urlPattern
-		})
+		filteredBroadCast(mel, buff, urlPattern)
 	}
 }
 
@@ -57,47 +56,50 @@ func sendJSONContainerRoutine(mel *melody.Melody, channel chan types.ContainerJS
 		if err != nil {
 			fmt.Println(err)
 		}
-		mel.BroadcastFilter(buff, func(session *melody.Session) bool {
-			return session.Request.URL.Path == urlPattern
-		})
-		//mel.Broadcast(buff)
+		filteredBroadCast(mel, buff, urlPattern)
 	}
+}
+
+func filteredBroadCast(mel *melody.Melody, msg []byte, pattern string){
+	mel.BroadcastFilter(msg, func(session *melody.Session) bool {
+		return session.Request.URL.Path == pattern
+	})
 }
 
 func main() {
 	os.Setenv("DOCKER_API_VERSION", "1.37")
 	r := gin.Default()
 	m := melody.New()
+	dashboardURL := "/dashboard"
+	containerURL := "/container/:id"
 
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.37"))
 	if err != nil {
 		fmt.Println(err)
 	}
 
-
-
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/dashboard")
 	})
 
-	r.GET("/dashboard", func(c *gin.Context) {
+	r.GET(dashboardURL, func(c *gin.Context) {
 		http.ServeFile(c.Writer, c.Request, "pages/dashboard.html")
 	})
 
 	r.Use(static.Serve("/public", static.LocalFile("./public", false)))
 
-	r.GET("/dashboard/dashboardWS", func(c *gin.Context) {
+	r.GET(dashboardURL + "/WS", func(c *gin.Context) {
 		containerChan := make(chan []types.Container)
 		go containerRoutine(cli, containerChan)
 		go sendRoutine(m, containerChan, c.Request.URL.Path)
 		m.HandleRequest(c.Writer, c.Request)
 	})
 
-	r.GET("/container/:id", func(c *gin.Context) {
+	r.GET(containerURL, func(c *gin.Context) {
 		http.ServeFile(c.Writer, c.Request, "pages/container.html")
 	})
 
-	r.GET("/container/:id/WS", func(c *gin.Context) {
+	r.GET(containerURL + "/WS", func(c *gin.Context) {
 		id := c.Param("id")
 		container := make(chan types.ContainerJSON)
 		go singleContainerRoutine(id, cli, container)
@@ -106,13 +108,6 @@ func main() {
 
 	})
 
-	m.HandleDisconnect(func(s *melody.Session) {
-		fmt.Println("dummyDisco")
-	})
-
-	m.HandleConnect(func(s *melody.Session) {
-		fmt.Println("dummyConnect")
-	})
 
 	r.Run(":3000")
 }
