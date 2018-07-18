@@ -6,15 +6,21 @@ import (
 	"net/http"
 	"os"
 	"time"
-
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/context"
 	"gopkg.in/olahol/melody.v1"
-
+	"strings"
 )
+
+type SubscribedChan struct {
+	subCount int
+	channel  chan types.ContainerJSON
+}
+
+var containers = make(map[string]SubscribedChan)
 
 func containerRoutine(cli *client.Client, channel chan []types.Container) {
 	ticker := time.NewTicker(time.Second)
@@ -33,7 +39,13 @@ func singleContainerRoutine(containerID string, cli *client.Client, channel chan
 		select {
 		case <-ticker.C:
 			container, _ := cli.ContainerInspect(context.Background(), containerID)
-			channel <- container
+			if _, ok := containers[containerID]; ok{
+				channel <- container
+			}else {
+				fmt.Println("Closed routine for " + containerID)
+				close(channel)
+				return
+			}
 		}
 	}
 }
@@ -60,7 +72,7 @@ func sendJSONContainerRoutine(mel *melody.Melody, channel chan types.ContainerJS
 	}
 }
 
-func filteredBroadCast(mel *melody.Melody, msg []byte, pattern string){
+func filteredBroadCast(mel *melody.Melody, msg []byte, pattern string) {
 	mel.BroadcastFilter(msg, func(session *melody.Session) bool {
 		return session.Request.URL.Path == pattern
 	})
@@ -78,6 +90,10 @@ func main() {
 		fmt.Println(err)
 	}
 
+	containerChan := make(chan []types.Container)
+	go containerRoutine(cli, containerChan)
+	go sendRoutine(m, containerChan, dashboardURL+"/WS")
+
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/dashboard")
 	})
@@ -88,10 +104,7 @@ func main() {
 
 	r.Use(static.Serve("/public", static.LocalFile("./public", false)))
 
-	r.GET(dashboardURL + "/WS", func(c *gin.Context) {
-		containerChan := make(chan []types.Container)
-		go containerRoutine(cli, containerChan)
-		go sendRoutine(m, containerChan, c.Request.URL.Path)
+	r.GET(dashboardURL+"/WS", func(c *gin.Context) {
 		m.HandleRequest(c.Writer, c.Request)
 	})
 
@@ -99,15 +112,31 @@ func main() {
 		http.ServeFile(c.Writer, c.Request, "pages/container.html")
 	})
 
-	r.GET(containerURL + "/WS", func(c *gin.Context) {
+	r.GET(containerURL+"/WS", func(c *gin.Context) {
 		id := c.Param("id")
-		container := make(chan types.ContainerJSON)
-		go singleContainerRoutine(id, cli, container)
-		go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
+		if val, ok := containers[id]; !ok {
+			container := make(chan types.ContainerJSON)
+			go singleContainerRoutine(id, cli, container)
+			go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
+			containers[id] = SubscribedChan{subCount: 1, channel: container}
+		} else {
+			val.subCount = val.subCount + 1
+			containers[id] = val
+		}
 		m.HandleRequest(c.Writer, c.Request)
-
 	})
 
+	m.HandleDisconnect(func(session *melody.Session) {
+		splittedUrl := strings.Split(session.Request.URL.Path, "/")
+		id := splittedUrl[len(splittedUrl)-2]
+		if val, ok := containers[id]; ok {
+			val.subCount = val.subCount - 1
+			containers[id] = val
+			if val.subCount <= 0 {
+				delete(containers, id)
+			}
+		}
+	})
 
 	r.Run(":3000")
 }
