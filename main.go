@@ -15,12 +15,12 @@ import (
 	"strings"
 )
 
-type Pair struct {
-	first  int
-	second chan types.ContainerJSON
+type SubscribedChan struct {
+	subCount int
+	channel  chan types.ContainerJSON
 }
 
-var containers = make(map[string]Pair)
+var containers = make(map[string]SubscribedChan)
 
 func containerRoutine(cli *client.Client, channel chan []types.Container) {
 	ticker := time.NewTicker(time.Second)
@@ -118,9 +118,9 @@ func main() {
 			container := make(chan types.ContainerJSON)
 			go singleContainerRoutine(id, cli, container)
 			go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
-			containers[id] = Pair{first: 1, second: container}
+			containers[id] = SubscribedChan{subCount: 1, channel: container}
 		} else {
-			val.first = val.first + 1
+			val.subCount = val.subCount + 1
 			containers[id] = val
 		}
 		m.HandleRequest(c.Writer, c.Request)
@@ -130,9 +130,9 @@ func main() {
 		splittedUrl := strings.Split(session.Request.URL.Path, "/")
 		id := splittedUrl[len(splittedUrl)-2]
 		if val, ok := containers[id]; ok {
-			val.first = val.first - 1
+			val.subCount = val.subCount - 1
 			containers[id] = val
-			if val.first <= 0 {
+			if val.subCount <= 0 {
 				delete(containers, id)
 			}
 		}
