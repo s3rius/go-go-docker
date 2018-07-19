@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/gin-contrib/static"
@@ -23,6 +24,7 @@ type SubscribedChan struct {
 }
 
 var containers = sync.Map{}
+var infologger *log.Logger
 
 func containerRoutine(cli *client.Client, channel chan []types.Container) {
 	ticker := time.NewTicker(time.Second)
@@ -44,13 +46,13 @@ func singleContainerRoutine(containerID string, cli *client.Client, channel chan
 			if _, ok := containers.Load(containerID); ok {
 				channel <- container
 			} else {
-				fmt.Println("Closed routine for " + containerID)
+				infologger.Printf("Closed routine for %s\n", containerID)
 				close(channel)
 				return
 			}
 		default:
 			if _, ok := containers.Load(containerID); !ok {
-				fmt.Println("Closed routine for " + containerID)
+				infologger.Printf("Closed routine for %s\n", containerID)
 				close(channel)
 				return
 			}
@@ -74,7 +76,7 @@ func sendJSONContainerRoutine(mel *melody.Melody, channel chan types.ContainerJS
 	id := splittedUrl[len(splittedUrl)-2]
 	for {
 		if _, ok := containers.Load(id); !ok {
-			fmt.Printf("Stopped broadcasting for %s\n", id)
+			infologger.Printf("Stopped broadcasting for %s\n", id)
 			return
 		} else {
 			containers := <-channel
@@ -99,8 +101,12 @@ func main() {
 	m := melody.New()
 	dashboardURL := "/dashboard"
 	containerURL := "/container/:id"
-	f, _ := os.Create("logs/gin.log")
-	gin.DefaultWriter = io.MultiWriter(f)
+	os.Mkdir("logs", os.ModePerm)
+	ginLogFile, _ := os.Create("logs/gin.log")
+	goLogFile, _ := os.Create("logs/go.log")
+
+	gin.DefaultWriter = io.MultiWriter(ginLogFile)
+	infologger = log.New(io.MultiWriter(goLogFile), "INFO: ", log.Lshortfile)
 
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.37"))
 	if err != nil {
@@ -132,7 +138,7 @@ func main() {
 	r.GET(containerURL+"/WS", func(c *gin.Context) {
 		id := c.Param("id")
 		if val, ok := containers.Load(id); !ok {
-			fmt.Printf("Channel %s not found. Adding new channel\n", id)
+			infologger.Printf("Channel %s not found. Adding new channel\n", id)
 			container := make(chan types.ContainerJSON)
 			go singleContainerRoutine(id, cli, container)
 			go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
@@ -154,7 +160,7 @@ func main() {
 				value.subCount = value.subCount - 1
 				containers.Store(id, val)
 				if value.subCount <= 0 {
-					fmt.Printf("Channel %s prepared to close\n", id)
+					infologger.Printf("Channel %s prepared to close\n", id)
 					containers.Delete(id)
 				}
 			}
