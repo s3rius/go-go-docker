@@ -13,6 +13,8 @@ import (
 	"golang.org/x/net/context"
 	"gopkg.in/olahol/melody.v1"
 	"strings"
+	"sync"
+	"io"
 )
 
 type SubscribedChan struct {
@@ -20,7 +22,7 @@ type SubscribedChan struct {
 	channel  chan types.ContainerJSON
 }
 
-var containers = make(map[string]SubscribedChan)
+var containers = sync.Map{}
 
 func containerRoutine(cli *client.Client, channel chan []types.Container) {
 	ticker := time.NewTicker(time.Second)
@@ -39,9 +41,15 @@ func singleContainerRoutine(containerID string, cli *client.Client, channel chan
 		select {
 		case <-ticker.C:
 			container, _ := cli.ContainerInspect(context.Background(), containerID)
-			if _, ok := containers[containerID]; ok{
+			if _, ok := containers.Load(containerID); ok {
 				channel <- container
-			}else {
+			} else {
+				fmt.Println("Closed routine for " + containerID)
+				close(channel)
+				return
+			}
+		default:
+			if _, ok := containers.Load(containerID); !ok {
 				fmt.Println("Closed routine for " + containerID)
 				close(channel)
 				return
@@ -62,13 +70,20 @@ func sendRoutine(mel *melody.Melody, channel chan []types.Container, urlPattern 
 }
 
 func sendJSONContainerRoutine(mel *melody.Melody, channel chan types.ContainerJSON, urlPattern string) {
+	splittedUrl := strings.Split(urlPattern, "/")
+	id := splittedUrl[len(splittedUrl)-2]
 	for {
-		containers := <-channel
-		buff, err := json.Marshal(containers)
-		if err != nil {
-			fmt.Println(err)
+		if _, ok := containers.Load(id); !ok {
+			fmt.Printf("Stopped broadcasting for %s\n", id)
+			return
+		} else {
+			containers := <-channel
+			buff, err := json.Marshal(containers)
+			if err != nil {
+				fmt.Println(err)
+			}
+			filteredBroadCast(mel, buff, urlPattern)
 		}
-		filteredBroadCast(mel, buff, urlPattern)
 	}
 }
 
@@ -84,6 +99,8 @@ func main() {
 	m := melody.New()
 	dashboardURL := "/dashboard"
 	containerURL := "/container/:id"
+	f, _ := os.Create("logs/gin.log")
+	gin.DefaultWriter = io.MultiWriter(f)
 
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.37"))
 	if err != nil {
@@ -114,28 +131,38 @@ func main() {
 
 	r.GET(containerURL+"/WS", func(c *gin.Context) {
 		id := c.Param("id")
-		if val, ok := containers[id]; !ok {
+		if val, ok := containers.Load(id); !ok {
+			fmt.Printf("Channel %s not found. Adding new channel\n", id)
 			container := make(chan types.ContainerJSON)
 			go singleContainerRoutine(id, cli, container)
 			go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
-			containers[id] = SubscribedChan{subCount: 1, channel: container}
+			containers.Store(id, SubscribedChan{subCount: 1, channel: container})
 		} else {
-			val.subCount = val.subCount + 1
-			containers[id] = val
+			value := val.(SubscribedChan)
+			value.subCount = value.subCount + 1
+			containers.Store(id, value)
 		}
 		m.HandleRequest(c.Writer, c.Request)
 	})
 
 	m.HandleDisconnect(func(session *melody.Session) {
-		splittedUrl := strings.Split(session.Request.URL.Path, "/")
-		id := splittedUrl[len(splittedUrl)-2]
-		if val, ok := containers[id]; ok {
-			val.subCount = val.subCount - 1
-			containers[id] = val
-			if val.subCount <= 0 {
-				delete(containers, id)
+		if dashboardURL != session.Request.URL.Path {
+			splittedUrl := strings.Split(session.Request.URL.Path, "/")
+			id := splittedUrl[len(splittedUrl)-2]
+			if val, ok := containers.Load(id); ok {
+				value := val.(SubscribedChan)
+				value.subCount = value.subCount - 1
+				containers.Store(id, val)
+				if value.subCount <= 0 {
+					fmt.Printf("Channel %s prepared to close\n", id)
+					containers.Delete(id)
+				}
 			}
 		}
+	})
+
+	m.HandleConnect(func(session *melody.Session) {
+
 	})
 
 	r.Run(":3000")
