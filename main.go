@@ -3,19 +3,19 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
-	"time"
-	"log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/context"
 	"gopkg.in/olahol/melody.v1"
+	"io"
+	"log"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
-	"io"
+	"time"
 )
 
 type SubscribedChan struct {
