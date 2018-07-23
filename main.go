@@ -18,10 +18,11 @@ import (
 	"time"
 )
 
-type SubscribedChan struct {
-	subCount int
-	channel  chan types.ContainerJSON
-}
+//type SubscribedChan struct {
+//	subCount   int
+//	containers chan types.ContainerJSON
+//	run        chan bool
+//}
 
 var containers = sync.Map{}
 var infologger *log.Logger
@@ -89,6 +90,14 @@ func sendJSONContainerRoutine(mel *melody.Melody, channel chan types.ContainerJS
 	}
 }
 
+func isContainerPublisher(id string) bool {
+	if _, ok := containers.Load(id); ok {
+		return true
+	} else {
+		return false
+	}
+}
+
 func filteredBroadCast(mel *melody.Melody, msg []byte, pattern string) {
 	mel.BroadcastFilter(msg, func(session *melody.Session) bool {
 		return session.Request.URL.Path == pattern
@@ -138,11 +147,11 @@ func main() {
 	r.GET(containerURL+"/WS", func(c *gin.Context) {
 		id := c.Param("id")
 		if val, ok := containers.Load(id); !ok {
-			infologger.Printf("Channel %s not found. Adding new channel\n", id)
+			infologger.Printf("Channel %s not found. Adding new containers\n", id)
 			container := make(chan types.ContainerJSON)
 			go singleContainerRoutine(id, cli, container)
 			go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
-			containers.Store(id, SubscribedChan{subCount: 1, channel: container})
+			//containers.Store(id, SubscribedChan{subCount: 1, containers: container})
 		} else {
 			value := val.(SubscribedChan)
 			value.subCount = value.subCount + 1
