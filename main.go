@@ -18,10 +18,10 @@ import (
 	"time"
 )
 
-//type SubscribedChan struct {
+//type ContainerBroadcaster struct {
 //	subCount   int
 //	containers chan types.ContainerJSON
-//	run        chan bool
+//	stop        chan bool
 //}
 
 var containers = sync.Map{}
@@ -119,7 +119,7 @@ func main() {
 
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.37"))
 	if err != nil {
-		fmt.Println(err)
+		panic(err)
 	}
 
 	containerChan := make(chan []types.Container)
@@ -148,13 +148,15 @@ func main() {
 		id := c.Param("id")
 		if val, ok := containers.Load(id); !ok {
 			infologger.Printf("Channel %s not found. Adding new containers\n", id)
-			container := make(chan types.ContainerJSON)
-			go singleContainerRoutine(id, cli, container)
-			go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
-			//containers.Store(id, SubscribedChan{subCount: 1, containers: container})
+			//container := make(chan types.ContainerJSON)
+			//go singleContainerRoutine(id, cli, container)
+			//go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
+			cont := ContainerBroadcaster{subCount: 1, mel: m, logger: infologger, cli: cli}
+			cont.SendingContainer(c.Request.URL.Path)
+			containers.Store(id, cont)
 		} else {
-			value := val.(SubscribedChan)
-			value.subCount = value.subCount + 1
+			value := val.(ContainerBroadcaster)
+			value.Subscribe()
 			containers.Store(id, value)
 		}
 		m.HandleRequest(c.Writer, c.Request)
@@ -165,8 +167,8 @@ func main() {
 			splittedUrl := strings.Split(session.Request.URL.Path, "/")
 			id := splittedUrl[len(splittedUrl)-2]
 			if val, ok := containers.Load(id); ok {
-				value := val.(SubscribedChan)
-				value.subCount = value.subCount - 1
+				value := val.(ContainerBroadcaster)
+				value.Unsubscribe()
 				containers.Store(id, val)
 				if value.subCount <= 0 {
 					infologger.Printf("Channel %s prepared to close\n", id)
