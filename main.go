@@ -33,7 +33,7 @@ func containerRoutine(cli *client.Client, channel chan []types.Container) {
 	for {
 		select {
 		case <-ticker.C:
-			containers, _ := cli.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+			containers, _ := cli.ContainerList(context.Background(), types.ContainerListOptions{All: true, Size: true})
 			channel <- containers
 		}
 	}
@@ -49,7 +49,6 @@ func sendRoutine(mel *melody.Melody, channel chan []types.Container, urlPattern 
 		filteredBroadCast(mel, buff, urlPattern)
 	}
 }
-
 
 func filteredBroadCast(mel *melody.Melody, msg []byte, pattern string) {
 	mel.BroadcastFilter(msg, func(session *melody.Session) bool {
@@ -102,16 +101,12 @@ func main() {
 		id := c.Param("id")
 		if val, ok := containers[id]; !ok {
 			infoLogger.Printf("Channel %s not found. Adding new containers\n", id)
-			//container := make(chan types.ContainerJSON)
-			//go singleContainerRoutine(id, cli, container)
-			//go sendJSONContainerRoutine(m, container, c.Request.URL.Path)
-			cont := ContainerBroadcaster{subCount: 1, mel: m, logger: debugLogger, cli: cli, quit: make(chan bool)}
+			cont := ContainerBroadcaster{subCount: 1, mel: m, logger: debugLogger, cli: cli}
 			cont.Start(c.Request.URL.Path)
 			containers[id] = &cont
 		} else {
-			value := val
-			value.Subscribe()
-			containers[id] = value
+			val.Subscribe()
+			containers[id] = val
 		}
 		m.HandleRequest(c.Writer, c.Request)
 	})
@@ -125,16 +120,11 @@ func main() {
 				containers[id] = val
 				if val.subCount <= 0 {
 					infoLogger.Printf("Channel %s prepared to close\n", id)
-					//containers.Delete(id)
 					val.Stop()
 					delete(containers, id)
 				}
 			}
 		}
-	})
-
-	m.HandleConnect(func(session *melody.Session) {
-
 	})
 
 	r.Run(":3000")

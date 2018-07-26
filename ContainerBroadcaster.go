@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/docker/docker/client"
 	"gopkg.in/olahol/melody.v1"
 	"log"
@@ -27,23 +26,17 @@ func (cb *ContainerBroadcaster) Start(urlPattern string) {
 		for {
 			select {
 			case <-cb.quit:
-				cb.logger.Println("Stop signal recieved. Stopping...")
+				cb.logger.Println("Stop signal received. Stopping...")
 				return
 			case <-ticker.C:
-				info, err := cb.cli.ContainerInspect(context.Background(), id)
+				_, raw, err := cb.cli.ContainerInspectWithRaw(context.Background(), id, true)
 				cb.logger.Println("Pushing new info")
 				if err != nil {
 					cb.logger.Printf("Error occured while updating info. Closing %s\n", id)
 					cb.logger.Printf("err: %s", id)
 					return
-				} else {
-					buff, merr := json.Marshal(info)
-					if merr != nil {
-						cb.logger.Println("Error while Marshalling.")
-						cb.logger.Printf("err: %s", err)
-					}
-					cb.filteredBroadcast(buff, urlPattern)
 				}
+				cb.filteredBroadcast(raw, urlPattern)
 			}
 		}
 	}()
