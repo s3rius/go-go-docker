@@ -1,0 +1,16 @@
+sudo: required
+
+language: go
+
+services:
+- docker
+
+before_install:
+- docker build -t s3rius/go-go-docker .
+- docker images
+
+deploy:
+  provider: script
+  script: bash travis-pusher.sh
+  on:
+    branch: master
