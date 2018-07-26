@@ -33,7 +33,7 @@ function render(running) {
     cont.exit().remove()
 }
 
-ws = connect((msg) => {
+let ws = connect((msg) => {
     console.log(msg);
     console.log(JSON.parse(msg.data));
     let conts = JSON.parse(msg.data);
