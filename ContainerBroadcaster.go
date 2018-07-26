@@ -33,7 +33,7 @@ func (cb *ContainerBroadcaster) Start(urlPattern string) {
 				cb.logger.Println("Pushing new info")
 				if err != nil {
 					cb.logger.Printf("Error occured while updating info. Closing %s\n", id)
-					cb.logger.Printf("err: %s", id)
+					cb.logger.Printf("err: %s", err)
 					return
 				}
 				cb.filteredBroadcast(raw, urlPattern)
