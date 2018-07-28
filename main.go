@@ -28,18 +28,18 @@ var containers = map[string]*ContainerBroadcaster{}
 var infoLogger *log.Logger
 var debugLogger *log.Logger
 
-func containerRoutine(cli *client.Client, channel chan []types.Container) {
+func containerRoutine(cli *client.Client, channel chan types.DiskUsage) {
 	ticker := time.NewTicker(time.Second)
 	for {
 		select {
 		case <-ticker.C:
-			containers, _ := cli.ContainerList(context.Background(), types.ContainerListOptions{All: true, Size: true})
+			containers, _ := cli.DiskUsage(context.Background())
 			channel <- containers
 		}
 	}
 }
 
-func sendRoutine(mel *melody.Melody, channel chan []types.Container, urlPattern string) {
+func sendRoutine(mel *melody.Melody, channel chan types.DiskUsage, urlPattern string) {
 	for {
 		containers := <-channel
 		buff, err := json.Marshal(containers)
@@ -75,7 +75,7 @@ func main() {
 		panic(err)
 	}
 
-	containerChan := make(chan []types.Container)
+	containerChan := make(chan types.DiskUsage)
 	go containerRoutine(cli, containerChan)
 	go sendRoutine(m, containerChan, dashboardURL+"/WS")
 
